@@ -1,0 +1,242 @@
+---
+description: React and Next.js patterns
+globs: "**/*.tsx,**/app/**/*,**/components/**/*"
+alwaysApply: false
+---
+
+# React / Next.js Standards
+
+## Component Structure
+
+```
+ComponentName/
+├── ComponentName.tsx      # Main component
+├── ComponentName.test.tsx # Tests
+├── index.ts              # Export
+└── styles.ts             # Styles (if needed)
+```
+
+## Component Rules
+
+### REQUIRED
+
+1. **Functional components only**
+   ```tsx
+   // CORRECT
+   function UserCard({ user }: { user: User }) {
+     return <div>{user.name}</div>;
+   }
+   
+   // WRONG - class components
+   class UserCard extends React.Component { }
+   ```
+
+2. **Explicit prop types**
+   ```tsx
+   // CORRECT
+   interface UserCardProps {
+     user: User;
+     onSelect?: (user: User) => void;
+   }
+   
+   function UserCard({ user, onSelect }: UserCardProps) { }
+   
+   // WRONG - inline or missing types
+   function UserCard(props: any) { }
+   ```
+
+3. **Use React Query for server state**
+   ```tsx
+   // CORRECT
+   function UserList() {
+     const { data, isLoading, error } = useQuery({
+       queryKey: ['users'],
+       queryFn: fetchUsers,
+     });
+   }
+   
+   // WRONG - useEffect for data fetching
+   function UserList() {
+     const [users, setUsers] = useState([]);
+     useEffect(() => {
+       fetch('/api/users').then(r => r.json()).then(setUsers);
+     }, []);
+   }
+   ```
+
+4. **Event handlers prefixed with "handle"**
+   ```tsx
+   // CORRECT
+   function handleClick() { }
+   function handleSubmit() { }
+   
+   // WRONG
+   function onClick() { }
+   function submitForm() { }
+   ```
+
+### FORBIDDEN
+
+1. **useEffect for data fetching** (use React Query)
+
+2. **Prop drilling beyond 2 levels** (use Context or composition)
+
+3. **Index as key in lists**
+   ```tsx
+   // WRONG
+   {items.map((item, index) => <Item key={index} />)}
+   
+   // CORRECT
+   {items.map(item => <Item key={item.id} />)}
+   ```
+
+4. **Mutating state directly**
+   ```tsx
+   // WRONG
+   state.items.push(newItem);
+   setState(state);
+   
+   // CORRECT
+   setState(prev => ({ ...prev, items: [...prev.items, newItem] }));
+   ```
+
+## Hooks Rules
+
+1. **Custom hooks for reusable logic**
+   ```tsx
+   // Extract to custom hook
+   function useUser(userId: string) {
+     return useQuery({
+       queryKey: ['user', userId],
+       queryFn: () => fetchUser(userId),
+     });
+   }
+   ```
+
+2. **Dependencies must be complete**
+   ```tsx
+   // CORRECT
+   useEffect(() => {
+     doSomething(userId, sessionId);
+   }, [userId, sessionId]);
+   
+   // WRONG - missing dependency
+   useEffect(() => {
+     doSomething(userId, sessionId);
+   }, [userId]);
+   ```
+
+## Next.js App Router
+
+### File Conventions
+
+| File | Purpose |
+|------|---------|
+| `page.tsx` | Route UI |
+| `layout.tsx` | Shared layout |
+| `loading.tsx` | Loading UI |
+| `error.tsx` | Error UI |
+| `not-found.tsx` | 404 UI |
+
+### Server vs Client Components
+
+```tsx
+// Server Component (default) - no directive needed
+async function UserPage({ params }: { params: { id: string } }) {
+  const user = await getUser(params.id);  // Can use async/await
+  return <UserProfile user={user} />;
+}
+
+// Client Component - must have directive
+'use client';
+
+function InteractiveButton() {
+  const [count, setCount] = useState(0);  // Can use hooks
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+### When to Use Client Components
+
+- Need useState, useEffect, or other hooks
+- Need event listeners (onClick, onChange)
+- Need browser-only APIs
+- Need React Query
+
+### Data Fetching
+
+```tsx
+// Server Component - fetch directly
+async function UserPage({ params }: { params: { id: string } }) {
+  const user = await fetch(`/api/users/${params.id}`).then(r => r.json());
+  return <UserProfile user={user} />;
+}
+
+// Client Component - use React Query
+'use client';
+
+function UserProfile({ userId }: { userId: string }) {
+  const { data: user } = useQuery({
+    queryKey: ['user', userId],
+    queryFn: () => fetchUser(userId),
+  });
+  return <div>{user?.name}</div>;
+}
+```
+
+## State Management
+
+| State Type | Solution |
+|------------|----------|
+| Server state | React Query |
+| UI state (local) | useState |
+| UI state (shared) | React Context |
+| Form state | React Hook Form |
+| URL state | Next.js searchParams |
+
+## Error Boundaries
+
+```tsx
+// app/error.tsx
+'use client';
+
+export default function Error({
+  error,
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
+  return (
+    <div>
+      <h2>Something went wrong!</h2>
+      <button onClick={reset}>Try again</button>
+    </div>
+  );
+}
+```
+
+## Testing
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { UserCard } from './UserCard';
+
+describe('UserCard', () => {
+  it('displays user name', () => {
+    const user = { id: '1', name: 'Test User' };
+    render(<UserCard user={user} />);
+    expect(screen.getByText('Test User')).toBeInTheDocument();
+  });
+  
+  it('calls onSelect when clicked', async () => {
+    const user = { id: '1', name: 'Test User' };
+    const onSelect = jest.fn();
+    render(<UserCard user={user} onSelect={onSelect} />);
+    
+    await userEvent.click(screen.getByRole('button'));
+    expect(onSelect).toHaveBeenCalledWith(user);
+  });
+});
+```

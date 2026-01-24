@@ -1,0 +1,335 @@
+---
+description: State machine implementation patterns
+globs: "**/entities/**/*,**/models/**/*,**/*state*"
+alwaysApply: false
+---
+
+# State Machine Rules
+
+## Stateful Entities
+
+From Phase 3, these entities have state machines:
+
+| Entity | States | Initial | Terminal |
+|--------|--------|---------|----------|
+| [Entity 1] | [list states] | [initial] | [terminal] |
+| [Entity 2] | [list states] | [initial] | [terminal] |
+
+> **Fill this in from your Phase 3 State Machine definitions.**
+
+## Implementation Pattern
+
+### 1. Define States as Enum
+
+```typescript
+// entities/session/types.ts
+
+export enum SessionState {
+  DRAFT = 'draft',
+  ACTIVE = 'active',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+}
+
+// Terminal states - no transitions out
+export const TERMINAL_STATES = [
+  SessionState.COMPLETED,
+  SessionState.CANCELLED,
+] as const;
+```
+
+### 2. Define Valid Transitions
+
+```typescript
+// entities/session/transitions.ts
+
+import { SessionState } from './types';
+
+// Map of: currentState -> allowedNextStates
+export const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
+  [SessionState.DRAFT]: [SessionState.ACTIVE, SessionState.CANCELLED],
+  [SessionState.ACTIVE]: [SessionState.COMPLETED, SessionState.CANCELLED],
+  [SessionState.COMPLETED]: [], // Terminal - no transitions out
+  [SessionState.CANCELLED]: [], // Terminal - no transitions out
+};
+
+export function canTransition(from: SessionState, to: SessionState): boolean {
+  return VALID_TRANSITIONS[from].includes(to);
+}
+```
+
+### 3. Create Transition Function
+
+```typescript
+// entities/session/transitions.ts
+
+import { EventEmitter } from '../shared/events';
+
+export interface TransitionResult<T> {
+  entity: T;
+  previousState: SessionState;
+  newState: SessionState;
+  trigger: string;
+}
+
+export async function transitionSession(
+  session: Session,
+  toState: SessionState,
+  trigger: string,
+  context?: TransitionContext
+): Promise<TransitionResult<Session>> {
+  const fromState = session.state;
+  
+  // 1. Validate transition is allowed
+  if (!canTransition(fromState, toState)) {
+    throw new InvalidTransitionError(
+      `Cannot transition from ${fromState} to ${toState}`
+    );
+  }
+  
+  // 2. Check guard conditions
+  const guardResult = await checkGuards(session, toState, context);
+  if (!guardResult.allowed) {
+    throw new GuardFailedError(guardResult.reason);
+  }
+  
+  // 3. Execute transition actions
+  await executeTransitionActions(session, fromState, toState, context);
+  
+  // 4. Update state
+  const updatedSession = {
+    ...session,
+    state: toState,
+    updatedAt: new Date(),
+  };
+  
+  // 5. Log the transition
+  await logTransition({
+    entityId: session.id,
+    entityType: 'Session',
+    fromState,
+    toState,
+    trigger,
+    timestamp: new Date(),
+  });
+  
+  // 6. Emit domain event
+  EventEmitter.emit('session.stateChanged', {
+    sessionId: session.id,
+    previousState: fromState,
+    newState: toState,
+    trigger,
+  });
+  
+  return {
+    entity: updatedSession,
+    previousState: fromState,
+    newState: toState,
+    trigger,
+  };
+}
+```
+
+### 4. Define Guards
+
+```typescript
+// entities/session/guards.ts
+
+export interface GuardResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+type Guard = (
+  session: Session,
+  context?: TransitionContext
+) => Promise<GuardResult>;
+
+const guards: Record<string, Guard[]> = {
+  // Guards for transitioning TO active
+  [SessionState.ACTIVE]: [
+    async (session) => ({
+      allowed: session.userId !== null,
+      reason: 'Session must have a user',
+    }),
+  ],
+  
+  // Guards for transitioning TO completed
+  [SessionState.COMPLETED]: [
+    async (session) => ({
+      allowed: session.messages.length > 0,
+      reason: 'Session must have at least one message',
+    }),
+  ],
+};
+
+export async function checkGuards(
+  session: Session,
+  toState: SessionState,
+  context?: TransitionContext
+): Promise<GuardResult> {
+  const stateGuards = guards[toState] || [];
+  
+  for (const guard of stateGuards) {
+    const result = await guard(session, context);
+    if (!result.allowed) {
+      return result;
+    }
+  }
+  
+  return { allowed: true };
+}
+```
+
+### 5. Define Transition Actions
+
+```typescript
+// entities/session/actions.ts
+
+type TransitionAction = (
+  session: Session,
+  context?: TransitionContext
+) => Promise<void>;
+
+const actions: Record<string, TransitionAction[]> = {
+  // Actions when entering COMPLETED
+  [SessionState.COMPLETED]: [
+    async (session) => {
+      await notifyUser(session.userId, 'Session completed!');
+    },
+    async (session) => {
+      await updateAnalytics('session_completed', { sessionId: session.id });
+    },
+  ],
+  
+  // Actions when entering CANCELLED
+  [SessionState.CANCELLED]: [
+    async (session, context) => {
+      await logCancellation(session.id, context?.reason);
+    },
+  ],
+};
+
+export async function executeTransitionActions(
+  session: Session,
+  fromState: SessionState,
+  toState: SessionState,
+  context?: TransitionContext
+): Promise<void> {
+  const stateActions = actions[toState] || [];
+  
+  for (const action of stateActions) {
+    await action(session, context);
+  }
+}
+```
+
+## Usage
+
+```typescript
+// In service layer
+async function completeSession(sessionId: string): Promise<Session> {
+  const session = await sessionRepository.findById(sessionId);
+  if (!session) {
+    throw new NotFoundError('Session', sessionId);
+  }
+  
+  const result = await transitionSession(
+    session,
+    SessionState.COMPLETED,
+    'user_completed'
+  );
+  
+  await sessionRepository.save(result.entity);
+  
+  return result.entity;
+}
+```
+
+## FORBIDDEN Patterns
+
+### 1. Direct State Assignment
+
+```typescript
+// WRONG - bypasses all validation, logging, events
+session.state = SessionState.COMPLETED;
+await sessionRepository.save(session);
+
+// CORRECT - use transition function
+const result = await transitionSession(session, SessionState.COMPLETED, 'trigger');
+await sessionRepository.save(result.entity);
+```
+
+### 2. State Changes Without Validation
+
+```typescript
+// WRONG - no guard checking
+if (userWantsToComplete) {
+  session.state = SessionState.COMPLETED;
+}
+
+// CORRECT - guards are checked automatically
+await transitionSession(session, SessionState.COMPLETED, 'user_request');
+```
+
+### 3. Missing Transition Logging
+
+All transitions MUST be logged for audit trail.
+
+### 4. State Changes Without Domain Events
+
+Other parts of the system may need to react to state changes.
+
+## Testing State Machines
+
+```typescript
+describe('Session State Machine', () => {
+  describe('valid transitions', () => {
+    it('can transition from DRAFT to ACTIVE', async () => {
+      const session = createSession({ state: SessionState.DRAFT });
+      
+      const result = await transitionSession(
+        session,
+        SessionState.ACTIVE,
+        'user_started'
+      );
+      
+      expect(result.newState).toBe(SessionState.ACTIVE);
+    });
+  });
+  
+  describe('invalid transitions', () => {
+    it('cannot transition from COMPLETED to ACTIVE', async () => {
+      const session = createSession({ state: SessionState.COMPLETED });
+      
+      await expect(
+        transitionSession(session, SessionState.ACTIVE, 'invalid')
+      ).rejects.toThrow(InvalidTransitionError);
+    });
+  });
+  
+  describe('guards', () => {
+    it('prevents completion without messages', async () => {
+      const session = createSession({
+        state: SessionState.ACTIVE,
+        messages: [],
+      });
+      
+      await expect(
+        transitionSession(session, SessionState.COMPLETED, 'complete')
+      ).rejects.toThrow(GuardFailedError);
+    });
+  });
+});
+```
+
+## Why This Matters
+
+State machines make impossible states impossible.
+
+**Specific benefits:**
+- Direct assignment (`entity.status = 'X'`) bypasses business rules—transition functions enforce them
+- Every state change is logged, creating an audit trail
+- Domain events enable other systems to react to state changes
+- Invalid transitions fail fast with clear errors instead of corrupting data
+- Testing becomes exhaustive—you can verify every valid and invalid transition

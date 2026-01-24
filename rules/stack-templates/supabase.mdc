@@ -1,0 +1,232 @@
+---
+description: Supabase patterns and practices
+globs: ["**/supabase/**", "**/*supabase*", "**/hooks/use*.ts"]
+---
+
+# Supabase Patterns
+
+Customize this template for your project's Supabase usage.
+
+## Client Initialization
+
+Use a single, shared Supabase client:
+
+```typescript
+// src/lib/supabase.ts
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from './database.types';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+```
+
+NEVER create multiple clients. ALWAYS import from this single source.
+
+## Type Safety
+
+### Generate Types from Schema
+
+Run after any schema change:
+```bash
+npx supabase gen types typescript --project-id YOUR_PROJECT_ID > src/lib/database.types.ts
+```
+
+### Use Generated Types
+
+```typescript
+// CORRECT - Type-safe
+import type { Database } from '@/lib/database.types';
+type User = Database['public']['Tables']['users']['Row'];
+
+// FORBIDDEN - No type safety
+const { data } = await supabase.from('users').select('*');
+```
+
+## Query Patterns
+
+### Fetching Data
+
+```typescript
+// CORRECT - Explicit columns, typed response
+const { data, error } = await supabase
+  .from('users')
+  .select('id, email, name, created_at')
+  .eq('id', userId)
+  .single();
+
+if (error) {
+  // Handle error appropriately
+  throw new DatabaseError(`Failed to fetch user: ${error.message}`);
+}
+
+// FORBIDDEN - Select all without explicit columns
+const { data } = await supabase.from('users').select('*');
+```
+
+### Inserting Data
+
+```typescript
+// CORRECT - Type-safe insert
+const newUser: Database['public']['Tables']['users']['Insert'] = {
+  email: 'user@example.com',
+  name: 'User Name',
+};
+
+const { data, error } = await supabase
+  .from('users')
+  .insert(newUser)
+  .select()
+  .single();
+```
+
+### Updating Data
+
+```typescript
+// CORRECT - Always filter, always check error
+const { error } = await supabase
+  .from('users')
+  .update({ name: 'New Name' })
+  .eq('id', userId);
+
+if (error) throw new DatabaseError(`Update failed: ${error.message}`);
+
+// FORBIDDEN - Update without filter (affects all rows!)
+await supabase.from('users').update({ name: 'Oops' });
+```
+
+## React Query Integration
+
+Use React Query for data fetching in components:
+
+```typescript
+// hooks/useUser.ts
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
+
+export function useUser(userId: string) {
+  return useQuery({
+    queryKey: ['user', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, name')
+        .eq('id', userId)
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!userId,
+  });
+}
+```
+
+## Real-time Subscriptions
+
+```typescript
+// CORRECT - Clean up subscription
+useEffect(() => {
+  const channel = supabase
+    .channel('messages')
+    .on('postgres_changes', 
+      { event: 'INSERT', schema: 'public', table: 'messages' },
+      (payload) => {
+        // Handle new message
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
+
+// FORBIDDEN - Subscription without cleanup (memory leak)
+useEffect(() => {
+  supabase.channel('messages').on(...).subscribe();
+}, []);
+```
+
+## Edge Functions
+
+### Calling Edge Functions
+
+```typescript
+const { data, error } = await supabase.functions.invoke('function-name', {
+  body: { param1: 'value' },
+});
+
+if (error) {
+  // Handle error - edge function might be unavailable
+  console.error('Edge function error:', error);
+  // Use fallback if available
+}
+```
+
+### Writing Edge Functions
+
+```typescript
+// supabase/functions/my-function/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const { param1 } = await req.json();
+    
+    // Your logic here
+    const result = await processData(param1);
+
+    return new Response(
+      JSON.stringify({ data: result }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Function error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+```
+
+## Row Level Security (RLS)
+
+ALWAYS enable RLS on tables with user data:
+
+```sql
+-- Enable RLS
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Users can only read their own data
+CREATE POLICY "Users can view own data"
+ON users FOR SELECT
+USING (auth.uid() = id);
+
+-- Users can only update their own data
+CREATE POLICY "Users can update own data"
+ON users FOR UPDATE
+USING (auth.uid() = id);
+```
+
+## FORBIDDEN Patterns
+
+- Creating multiple Supabase clients
+- Queries without error handling
+- Updates without WHERE clause
+- Subscriptions without cleanup
+- Storing Supabase URL/key in code (use env vars)
+- Disabling RLS on user-data tables
+- Using `select('*')` in production code

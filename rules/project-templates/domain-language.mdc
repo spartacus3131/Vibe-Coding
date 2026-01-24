@@ -1,0 +1,144 @@
+---
+description: Ubiquitous language enforcement for this project
+alwaysApply: true
+---
+
+# Domain Language: [PROJECT NAME]
+
+**Customize this template** with your project's ubiquitous language from Phase 1 & 2.
+
+## Ubiquitous Language
+
+These terms have EXACT meanings in this project. Use them EXACTLY as defined everywhere: code, comments, variable names, conversations, documentation.
+
+### Core Domain Terms
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| [Term 1] | [Definition] | [Forbidden synonyms] |
+| [Term 2] | [Definition] | [Forbidden synonyms] |
+| [Term 3] | [Definition] | [Forbidden synonyms] |
+
+**Example for Clairu:**
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| Coach | The AI persona that guides users | assistant, bot, chatbot, AI |
+| DailyNote | Structured extraction from conversation | notes, summary, journal |
+| HotSpot | An area of life user wants to improve | area, category, topic |
+| ParkingLot | Ideas/tasks to address later | backlog, todo, inbox |
+
+### Action Terms
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| [Action 1] | [Definition] | [Forbidden synonyms] |
+| [Action 2] | [Definition] | [Forbidden synonyms] |
+
+**Example:**
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| CheckIn | User's morning or evening conversation | session, chat, conversation |
+| Extract | Deriving structured data from conversation | parse, pull, get |
+
+### State Terms
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| [State 1] | [Definition] | [Forbidden synonyms] |
+
+**Example:**
+
+| Term | Definition | NEVER Call It |
+|------|------------|---------------|
+| Trial | User in 7-day trial period | free, testing |
+| Subscribed | User with active subscription | paid, premium |
+
+## Naming Conventions
+
+### Variables and Functions
+
+```typescript
+// CORRECT - Uses ubiquitous language
+const dailyNote = await getDailyNote(userId);
+const coachReply = await generateCoachReply(message);
+const hotSpots = await getHotSpots(userId);
+
+// FORBIDDEN - Uses synonyms
+const notes = await getNotes(userId);        // "notes" not in glossary
+const aiResponse = await chat(message);      // "ai", "chat" not in glossary
+const categories = await getCategories();    // "categories" not in glossary
+```
+
+### Database Tables and Columns
+
+```sql
+-- CORRECT
+CREATE TABLE daily_notes (...);
+CREATE TABLE hot_spots (...);
+CREATE TABLE parking_lot_items (...);
+
+-- FORBIDDEN
+CREATE TABLE notes (...);        -- Wrong term
+CREATE TABLE user_areas (...);   -- Wrong term
+CREATE TABLE todos (...);        -- Wrong term
+```
+
+### File and Folder Names
+
+```
+// CORRECT
+src/
+  hooks/
+    useDailyNote.ts
+    useHotSpots.ts
+    useParkingLot.ts
+  components/
+    Coach/
+      CoachReply.tsx
+    DailyNote/
+      DailyNoteView.tsx
+
+// FORBIDDEN
+src/
+  hooks/
+    useNotes.ts          // Wrong term
+    useCategories.ts     // Wrong term
+```
+
+## Code Review Checklist
+
+Before any commit, verify:
+
+- [ ] All new variables use ubiquitous language terms
+- [ ] All new functions use ubiquitous language terms
+- [ ] All comments use ubiquitous language terms
+- [ ] No synonyms have been introduced
+- [ ] Any new domain concepts are added to this file
+
+## When to Add New Terms
+
+If you need a concept that isn't in the glossary:
+
+1. STOP - don't use a random name
+2. Discuss with stakeholders what this concept should be called
+3. Add it to this document with definition and forbidden synonyms
+4. THEN use it in code
+
+## FORBIDDEN
+
+- Using synonyms for defined terms
+- Abbreviations not in the glossary
+- Creating new terms without adding to glossary
+- Mixing terms from different bounded contexts
+
+## Why This Matters
+
+Ubiquitous language eliminates translation errors between stakeholders and code.
+
+**Specific benefits:**
+- When the PRD says "Intention" and the code says `intention`, there's no confusion
+- Searching the codebase for domain concepts actually works
+- New developers understand business meaning from variable names
+- AI tools can connect business requirements to implementation accurately

@@ -1,0 +1,350 @@
+---
+description: AI/LLM integration patterns with Claude
+globs: "**/ai/**/*,**/llm/**/*,**/*ai*,**/*llm*"
+alwaysApply: false
+---
+
+# AI / Claude Integration Standards
+
+## Architecture
+
+```
+src/
+├── ai/
+│   ├── client.ts           # Claude API client setup
+│   ├── prompts/            # Prompt templates
+│   │   ├── coaching.ts
+│   │   └── extraction.ts
+│   ├── services/           # AI service functions
+│   │   ├── generate.ts
+│   │   └── extract.ts
+│   └── types.ts            # AI-related types
+```
+
+## Client Setup
+
+```typescript
+// ai/client.ts
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+export async function generateResponse(
+  systemPrompt: string,
+  userMessage: string,
+  options?: {
+    maxTokens?: number;
+    temperature?: number;
+  }
+): Promise<string> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: options?.maxTokens ?? 1024,
+    temperature: options?.temperature ?? 0.7,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }],
+  });
+
+  const textBlock = response.content.find(block => block.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    throw new Error('No text response from Claude');
+  }
+  
+  return textBlock.text;
+}
+```
+
+## Prompt Management
+
+### REQUIRED
+
+1. **Prompts in separate files, not inline**
+   ```typescript
+   // CORRECT - prompts/coaching.ts
+   export const COACHING_SYSTEM_PROMPT = `
+   You are a productivity coach using Chris Bailey's frameworks.
+   
+   Your role:
+   - Help users set intentions
+   - Guide energy management
+   - Facilitate focus sessions
+   
+   Your tone:
+   - Encouraging but not patronizing
+   - Concise (2-4 sentences per response)
+   - Action-oriented
+   `;
+   
+   // WRONG - inline in service
+   async function generateCoachingResponse(input: string) {
+     const response = await anthropic.messages.create({
+       system: "You are a productivity coach...", // NO!
+       // ...
+     });
+   }
+   ```
+
+2. **Variable injection with clear markers**
+   ```typescript
+   // prompts/coaching.ts
+   export function buildCoachingPrompt(context: {
+     userName: string;
+     recentEnergy: number[];
+     activeIntentions: string[];
+   }): string {
+     return `
+   You are coaching ${context.userName}.
+   
+   Their recent energy levels: ${context.recentEnergy.join(', ')}
+   Their active intentions: ${context.activeIntentions.join(', ')}
+   
+   Respond with empathy and actionable guidance.
+   `;
+   }
+   ```
+
+3. **Version prompts like code**
+   - Commit prompt changes with meaningful messages
+   - Document what changed and why
+   - Test prompt changes before deploying
+
+## Error Handling
+
+### REQUIRED
+
+1. **Timeout handling**
+   ```typescript
+   async function generateWithTimeout(
+     prompt: string,
+     timeoutMs: number = 30000
+   ): Promise<string> {
+     const controller = new AbortController();
+     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+     
+     try {
+       const response = await generateResponse(prompt, {
+         signal: controller.signal,
+       });
+       return response;
+     } finally {
+       clearTimeout(timeoutId);
+     }
+   }
+   ```
+
+2. **Retry logic**
+   ```typescript
+   async function generateWithRetry(
+     prompt: string,
+     maxRetries: number = 2
+   ): Promise<string> {
+     let lastError: Error | null = null;
+     
+     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+       try {
+         return await generateResponse(prompt);
+       } catch (error) {
+         lastError = error as Error;
+         if (attempt < maxRetries) {
+           await sleep(1000 * (attempt + 1)); // Exponential backoff
+         }
+       }
+     }
+     
+     throw lastError;
+   }
+   ```
+
+3. **Fallback responses**
+   ```typescript
+   async function generateCoachingResponse(
+     userInput: string,
+     context: UserContext
+   ): Promise<string> {
+     try {
+       return await generateWithRetry(
+         buildCoachingPrompt(userInput, context)
+       );
+     } catch (error) {
+       logger.error('AI generation failed', { error, userInput });
+       return FALLBACK_RESPONSES.serviceUnavailable;
+     }
+   }
+   
+   const FALLBACK_RESPONSES = {
+     serviceUnavailable: 
+       "I'm having trouble connecting right now. Let's try a simpler approach - on a scale of 1-10, how's your energy?",
+     lowConfidence:
+       "I want to make sure I understand - could you tell me more about what you mean?",
+   };
+   ```
+
+### FORBIDDEN
+
+1. **No timeout on AI calls**
+2. **Exposing raw AI errors to users**
+3. **No fallback for AI failures**
+4. **Hardcoded prompts in business logic**
+
+## Streaming
+
+For real-time response display:
+
+```typescript
+// Using Vercel AI SDK
+import { streamText } from 'ai';
+import { anthropic } from '@ai-sdk/anthropic';
+
+export async function streamCoachingResponse(
+  userMessage: string,
+  context: UserContext
+) {
+  const result = await streamText({
+    model: anthropic('claude-sonnet-4-20250514'),
+    system: buildCoachingPrompt(context),
+    messages: [{ role: 'user', content: userMessage }],
+  });
+  
+  return result.toDataStreamResponse();
+}
+```
+
+## Token Tracking
+
+```typescript
+interface AIUsageLog {
+  userId: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  timestamp: Date;
+}
+
+async function generateAndTrack(
+  userId: string,
+  prompt: string
+): Promise<{ response: string; usage: AIUsageLog }> {
+  const response = await anthropic.messages.create({
+    // ...
+  });
+  
+  const usage: AIUsageLog = {
+    userId,
+    tokensIn: response.usage.input_tokens,
+    tokensOut: response.usage.output_tokens,
+    costUsd: calculateCost(response.usage),
+    timestamp: new Date(),
+  };
+  
+  await saveUsageLog(usage);
+  
+  return { response: extractText(response), usage };
+}
+
+function calculateCost(usage: { input_tokens: number; output_tokens: number }): number {
+  // Claude Sonnet pricing (check current rates)
+  const inputCostPer1M = 3.00;
+  const outputCostPer1M = 15.00;
+  
+  return (
+    (usage.input_tokens / 1_000_000) * inputCostPer1M +
+    (usage.output_tokens / 1_000_000) * outputCostPer1M
+  );
+}
+```
+
+## Rate Limiting
+
+```typescript
+import { RateLimiter } from 'limiter';
+
+// Per-user rate limiting
+const userLimiters = new Map<string, RateLimiter>();
+
+function getUserLimiter(userId: string): RateLimiter {
+  if (!userLimiters.has(userId)) {
+    userLimiters.set(userId, new RateLimiter({
+      tokensPerInterval: 20,  // 20 requests
+      interval: 'minute',
+    }));
+  }
+  return userLimiters.get(userId)!;
+}
+
+async function generateWithRateLimit(
+  userId: string,
+  prompt: string
+): Promise<string> {
+  const limiter = getUserLimiter(userId);
+  
+  const hasCapacity = await limiter.tryRemoveTokens(1);
+  if (!hasCapacity) {
+    throw new RateLimitError('Too many requests. Please wait a moment.');
+  }
+  
+  return generateResponse(prompt);
+}
+```
+
+## Structured Extraction
+
+When extracting structured data from AI responses:
+
+```typescript
+import { z } from 'zod';
+
+const IntentionSchema = z.object({
+  text: z.string(),
+  type: z.enum(['task', 'goal', 'habit']),
+  urgency: z.enum(['low', 'medium', 'high']),
+  confidence: z.number().min(0).max(1),
+});
+
+async function extractIntention(userInput: string): Promise<z.infer<typeof IntentionSchema> | null> {
+  const response = await generateResponse(
+    EXTRACTION_PROMPTS.intention,
+    userInput
+  );
+  
+  try {
+    // Ask Claude to respond in JSON
+    const parsed = JSON.parse(response);
+    return IntentionSchema.parse(parsed);
+  } catch (error) {
+    logger.warn('Failed to extract intention', { userInput, response });
+    return null;
+  }
+}
+```
+
+## Testing AI Code
+
+```typescript
+// Mock the AI client in tests
+jest.mock('./client', () => ({
+  generateResponse: jest.fn(),
+}));
+
+describe('CoachingService', () => {
+  it('returns fallback when AI fails', async () => {
+    (generateResponse as jest.Mock).mockRejectedValue(new Error('API error'));
+    
+    const result = await generateCoachingResponse('test input', mockContext);
+    
+    expect(result).toBe(FALLBACK_RESPONSES.serviceUnavailable);
+  });
+  
+  it('extracts intention from user input', async () => {
+    (generateResponse as jest.Mock).mockResolvedValue(
+      JSON.stringify({ text: 'Finish report', type: 'task', urgency: 'high', confidence: 0.9 })
+    );
+    
+    const result = await extractIntention('I need to finish the report today');
+    
+    expect(result?.text).toBe('Finish report');
+    expect(result?.urgency).toBe('high');
+  });
+});
+```

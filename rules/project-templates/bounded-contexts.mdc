@@ -1,0 +1,165 @@
+---
+description: Bounded context separation and communication rules
+globs: "**/*"
+alwaysApply: true
+---
+
+# Bounded Context Rules
+
+## Our Contexts
+
+From Phase 2, our bounded contexts are:
+
+| Context | Type | Purpose |
+|---------|------|---------|
+| [Context 1] | Core | [Purpose] |
+| [Context 2] | Supporting | [Purpose] |
+| [Context 3] | Generic | [Purpose] |
+
+> **Fill this in from your Phase 2 Context Mapping document.**
+
+## Module Structure
+
+Each context is a separate module:
+
+```
+src/
+├── [context-1]/
+│   ├── entities/
+│   ├── services/
+│   ├── api/
+│   └── tests/
+├── [context-2]/
+│   └── ...
+└── shared/          # Only truly shared utilities
+    ├── types/
+    └── utils/
+```
+
+## Communication Rules
+
+### ALLOWED
+
+Contexts communicate ONLY through defined interfaces:
+
+| From | To | Method | What's Exchanged |
+|------|-----|--------|------------------|
+| [Context A] | [Context B] | Event | [Event name and data] |
+| [Context A] | [Context B] | Query | [Query name and params] |
+
+> **Fill this in from your Bounded Context Canvases (NEEDS/EXPOSES).**
+
+### FORBIDDEN
+
+1. **Importing from another context's internal modules**
+   ```typescript
+   // WRONG - reaching into another context
+   import { UserRepository } from '../user-identity/repositories/user';
+   
+   // CORRECT - use the exposed interface
+   import { userService } from '../user-identity';
+   const user = await userService.getUser(userId);
+   ```
+
+2. **Accessing another context's database tables directly**
+   ```typescript
+   // WRONG - direct database access
+   const user = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
+   
+   // CORRECT - use the context's service
+   const user = await userIdentityContext.getUser(userId);
+   ```
+
+3. **Sharing entities between contexts**
+   ```typescript
+   // WRONG - using another context's entity
+   import { User } from '../user-identity/entities/user';
+   
+   // CORRECT - define your own representation
+   interface UserReference {
+     id: string;
+     name: string;
+   }
+   ```
+
+## Interface Definitions
+
+### [Context 1] Exposes
+
+```typescript
+// [context-1]/index.ts - The public API
+
+export interface [Context1]Service {
+  // Queries
+  getSomething(id: string): Promise<Something | null>;
+  
+  // Commands
+  doSomething(input: SomethingInput): Promise<Something>;
+}
+
+// Events this context publishes
+export type [Context1]Events = {
+  'something.created': { id: string; data: Something };
+  'something.updated': { id: string; changes: Partial<Something> };
+};
+```
+
+### [Context 2] Needs
+
+```typescript
+// [context-2]/dependencies.ts
+
+// What this context needs from others
+export interface Dependencies {
+  context1: {
+    getSomething(id: string): Promise<Something | null>;
+  };
+}
+```
+
+## Event-Driven Communication
+
+When contexts need to react to changes in other contexts:
+
+```typescript
+// Publishing events (in context-1)
+import { eventBus } from '../shared/events';
+
+async function createSomething(input: Input): Promise<Something> {
+  const something = await repository.create(input);
+  
+  eventBus.publish('something.created', {
+    id: something.id,
+    data: something,
+  });
+  
+  return something;
+}
+
+// Subscribing to events (in context-2)
+import { eventBus } from '../shared/events';
+
+eventBus.subscribe('something.created', async (event) => {
+  await handleSomethingCreated(event.data);
+});
+```
+
+## Validation Checklist
+
+When adding code, verify:
+
+- [ ] No imports from other context's internal modules
+- [ ] No direct database queries to other context's tables
+- [ ] Communication uses defined interfaces only
+- [ ] New dependencies documented in context's NEEDS
+- [ ] New capabilities documented in context's EXPOSES
+
+## Why This Matters
+
+Bounded contexts are how large systems stay maintainable.
+
+**Specific benefits:**
+- Clear ownership—when something breaks, you know which context to fix
+- Independent deployment—change one context without risking others
+- Team scaling—different people can work on different contexts
+- Explicit interfaces prevent "spaghetti" dependencies that make changes risky

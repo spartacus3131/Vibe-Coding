@@ -1,0 +1,304 @@
+---
+description: AI behavior rules for generative features
+globs: "**/ai/**/*,**/prompts/**/*,**/coaching/**/*"
+alwaysApply: false
+---
+
+# AI Behavior Rules
+
+## Persona Definition
+
+From Phase 1 AI Extension, our AI persona is:
+
+| Attribute | Specification |
+|-----------|---------------|
+| **Role** | [e.g., Productivity coach] |
+| **Tone** | [e.g., Encouraging but not patronizing] |
+| **Length** | [e.g., 2-4 sentences per response] |
+| **Expertise** | [e.g., Practical, not academic] |
+
+> **Fill this in from your AI Extension document.**
+
+## Response Properties
+
+Every AI response MUST exhibit these properties:
+
+| Property | Requirement | How to Verify |
+|----------|-------------|---------------|
+| Length | [X-Y sentences] | Automated count |
+| Tone | [Description] | Human review |
+| Actionability | [X%+ include next step] | Human evaluation |
+| Relevance | [X%+ on-topic] | LLM-as-judge |
+
+## Guardrails
+
+### Prohibited Behaviors
+
+The AI must NEVER:
+
+| Guardrail | Description | Detection | Response |
+|-----------|-------------|-----------|----------|
+| [Name] | [What's prohibited] | [How detected] | [Fallback] |
+
+**Example:**
+| No Medical Advice | Never diagnose or recommend treatment | Keyword + intent detection | Acknowledge concern, suggest professional help |
+
+### Required Behaviors
+
+The AI MUST always:
+
+| Behavior | Description | Enforcement |
+|----------|-------------|-------------|
+| [Name] | [What's required] | [How enforced] |
+
+**Example:**
+| Disclose AI | Acknowledge being AI if directly asked | Response generation rule |
+
+## Implementation
+
+### Prompt Structure
+
+```typescript
+// prompts/coaching.ts
+
+export const SYSTEM_PROMPT = `
+You are a [ROLE].
+
+## Your Personality
+- [Trait 1]
+- [Trait 2]
+- [Trait 3]
+
+## Response Guidelines
+- Keep responses to [X-Y] sentences
+- Always [required behavior]
+- Never [prohibited behavior]
+
+## What You Are NOT
+- You are NOT a [boundary 1]
+- You are NOT a [boundary 2]
+`;
+
+export function buildUserPrompt(context: UserContext): string {
+  return `
+User: ${context.userName}
+Recent context: ${context.summary}
+Current request: ${context.currentInput}
+`;
+}
+```
+
+### Guardrail Implementation
+
+```typescript
+// ai/guardrails.ts
+
+interface GuardrailCheck {
+  name: string;
+  check: (input: string) => Promise<boolean>;
+  fallbackResponse: string;
+}
+
+const guardrails: GuardrailCheck[] = [
+  {
+    name: 'medical_advice',
+    check: async (input) => {
+      const medicalKeywords = ['medication', 'diagnosis', 'symptoms', 'treatment'];
+      return medicalKeywords.some(kw => input.toLowerCase().includes(kw));
+    },
+    fallbackResponse: `I appreciate you sharing that with me. While I can help with productivity and focus, I'm not able to give medical advice. If you're experiencing health concerns, please consult a healthcare professional. For now, would you like to focus on setting a manageable intention for today?`,
+  },
+  {
+    name: 'crisis_detection',
+    check: async (input) => {
+      const crisisKeywords = ['suicide', 'self-harm', 'end it all', 'no reason to live'];
+      return crisisKeywords.some(kw => input.toLowerCase().includes(kw));
+    },
+    fallbackResponse: `I hear that you're going through a difficult time, and I want you to know that you matter. While I'm here to help with productivity, what you're describing sounds like something a trained professional could help with better. Please reach out to a crisis helpline or mental health professional. Would you like me to share some resources?`,
+  },
+];
+
+export async function checkGuardrails(
+  input: string
+): Promise<{ triggered: boolean; response?: string }> {
+  for (const guardrail of guardrails) {
+    if (await guardrail.check(input)) {
+      return { triggered: true, response: guardrail.fallbackResponse };
+    }
+  }
+  return { triggered: false };
+}
+```
+
+### Response Validation
+
+```typescript
+// ai/validation.ts
+
+interface ResponseValidation {
+  isValid: boolean;
+  issues: string[];
+}
+
+export function validateResponse(response: string): ResponseValidation {
+  const issues: string[] = [];
+  
+  // Check length
+  const sentences = response.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  if (sentences.length < 2) {
+    issues.push('Response too short (< 2 sentences)');
+  }
+  if (sentences.length > 4) {
+    issues.push('Response too long (> 4 sentences)');
+  }
+  
+  // Check for prohibited patterns
+  const prohibitedPatterns = [
+    /you must/i,        // Overriding user autonomy
+    /I guarantee/i,     // False promises
+    /definitely will/i, // False certainty
+  ];
+  
+  for (const pattern of prohibitedPatterns) {
+    if (pattern.test(response)) {
+      issues.push(`Contains prohibited pattern: ${pattern}`);
+    }
+  }
+  
+  return {
+    isValid: issues.length === 0,
+    issues,
+  };
+}
+```
+
+### Fallback Responses
+
+```typescript
+// ai/fallbacks.ts
+
+export const FALLBACK_RESPONSES = {
+  // When AI service is unavailable
+  serviceUnavailable: `
+I'm having trouble connecting right now. Let's try something simpler:
+On a scale of 1-10, how's your energy level? (Just type a number)
+`,
+  
+  // When confidence is low
+  lowConfidence: `
+I want to make sure I understand you correctly. Could you tell me more about what you mean?
+`,
+  
+  // When user goes off-topic
+  offTopic: `
+That's an interesting thought! For our coaching today, let's focus on your energy and intentions. How are you feeling right now?
+`,
+  
+  // When guardrail triggered (medical)
+  medicalBoundary: `
+I appreciate you sharing that. While I can help with productivity, I'm not equipped to give medical advice. For health concerns, please consult a professional. Would you like to focus on setting a simple intention for today instead?
+`,
+};
+```
+
+## Evaluation
+
+### Automated Metrics
+
+```typescript
+// ai/metrics.ts
+
+interface ResponseMetrics {
+  latencyMs: number;
+  tokenCount: number;
+  sentenceCount: number;
+  containsActionItem: boolean;
+}
+
+export async function measureResponse(
+  generateFn: () => Promise<string>
+): Promise<{ response: string; metrics: ResponseMetrics }> {
+  const start = Date.now();
+  const response = await generateFn();
+  const latencyMs = Date.now() - start;
+  
+  return {
+    response,
+    metrics: {
+      latencyMs,
+      tokenCount: estimateTokens(response),
+      sentenceCount: countSentences(response),
+      containsActionItem: hasActionItem(response),
+    },
+  };
+}
+```
+
+### Human Evaluation Rubric
+
+When reviewing AI responses, score 1-5 on:
+
+| Criterion | 1 (Poor) | 3 (Acceptable) | 5 (Excellent) |
+|-----------|----------|----------------|---------------|
+| Tone | Cold, robotic | Neutral | Warm, encouraging |
+| Helpfulness | Doesn't address need | Partially helpful | Directly useful |
+| Persona consistency | Breaks character | Minor slips | Perfect consistency |
+| Actionability | No next step | Vague suggestion | Clear action |
+
+## Testing AI Behavior
+
+```typescript
+describe('AI Coaching Behavior', () => {
+  describe('guardrails', () => {
+    it('redirects medical questions', async () => {
+      const input = 'Should I take medication for my anxiety?';
+      const result = await checkGuardrails(input);
+      
+      expect(result.triggered).toBe(true);
+      expect(result.response).toContain('healthcare professional');
+    });
+  });
+  
+  describe('response properties', () => {
+    it('keeps responses within length limits', async () => {
+      const response = await generateCoachingResponse('How should I start my day?');
+      const validation = validateResponse(response);
+      
+      expect(validation.isValid).toBe(true);
+    });
+    
+    it('includes actionable next step', async () => {
+      const response = await generateCoachingResponse('I feel unfocused');
+      
+      // Should include a concrete suggestion
+      expect(response).toMatch(/try|start|consider|would you like/i);
+    });
+  });
+  
+  describe('persona consistency', () => {
+    it('maintains encouraging tone across multiple exchanges', async () => {
+      const responses = await Promise.all([
+        generateCoachingResponse('I failed at my goal'),
+        generateCoachingResponse('I procrastinated all day'),
+        generateCoachingResponse('I keep getting distracted'),
+      ]);
+      
+      // All responses should be supportive, not critical
+      for (const response of responses) {
+        expect(response).not.toMatch(/you should have|you failed|disappointed/i);
+      }
+    });
+  });
+});
+```
+
+## Why This Matters
+
+AI behavior is the product experience—it must be intentional, not accidental.
+
+**Specific benefits:**
+- Defined properties make AI output measurable, not just "vibes"
+- Guardrails prevent reputation-damaging responses before they reach users
+- Example variations show the AI (and developers) what "good" looks like
+- Evaluation criteria turn subjective quality into trackable metrics
+- Fallback behaviors ensure graceful degradation when AI fails
