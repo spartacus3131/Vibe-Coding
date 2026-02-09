@@ -2,7 +2,7 @@
 
 **A complete framework for building products with AI coding tools**
 
-Based on analysis of real codebases (Clairu) and Luke transcript insights.
+Based on analysis of real codebases and Luke transcript insights.
 
 ---
 
@@ -95,20 +95,71 @@ vibe-coding-guide-v3/
 
 ---
 
-## Quick Start
+## How to Use This (Step by Step)
 
-1. **Load the orchestrator:** `pm-orchestrator-v3.md`
-2. **Classify your components:** DETERMINISTIC / AI-UTILITY / AI-GENERATIVE
-3. **Complete Phase 1:** Base PRD (+ AI Extension if needed)
-4. **Follow the orchestrator** through remaining phases
+Each phase document is designed to be **loaded directly into your AI coding tool** (Cursor, Claude Code, etc.). You paste the document into a conversation, describe your product, and the AI walks you through filling out the templates.
+
+### Phase 1: Product Requirements (2-4 hours)
+
+> **Goal:** Define WHAT you're building and WHY. No technology decisions.
+
+1. Open a new AI chat session
+2. Paste the contents of `pm-orchestrator-v3.md` — this gives the AI the full picture
+3. Paste the contents of `phase-1/pm-phase-1-requirements-base.md`
+4. Tell the AI about your product idea and work through the template together:
+   - Answer the 4 W's (Who, What, Why, Where)
+   - Write Sad/Happy user stories
+   - Document current workflow
+   - Define MVP scope, success metrics, and user flows
+   - Classify your features: **DETERMINISTIC** / **AI-UTILITY** / **AI-GENERATIVE**
+5. **If you have AI-GENERATIVE features:** Also load `phase-1/pm-phase-1-requirements-ai-extension.md` and complete it
+6. Save the completed PRD to your project repo
+
+### Phase 2: Domain Architecture (3-6 hours)
+
+> **Goal:** Map everything that HAPPENS in your product and organize it into bounded contexts.
+
+Phase 2 has three sub-steps, done in order. For each one, start a new AI chat session with the orchestrator + your completed Phase 1 PRD for context.
+
+**Step 2A — Event Storming:**
+1. Load `phase-2/pm-phase-2a-event-storming.md` along with your completed PRD
+2. For each user flow from your PRD, map out: events, commands, actors, and policies
+3. If you have AI features, label each event `[DETERMINISTIC]` or `[AI-POWERED]`
+
+**Step 2B — Context Mapping:**
+1. Load `phase-2/pm-phase-2b-context-mapping.md` along with your event storm output
+2. Group your events into bounded contexts (subdomains)
+3. Map the relationships between contexts
+
+**Step 2C — Bounded Context Canvas:**
+1. Load `phase-2/pm-phase-2c-bounded-context-canvas.md` along with your context map
+2. Complete a canvas for EVERY bounded context — entities, rules, interfaces
+
+### Phase 3: Technical Architecture (4-8 hours)
+
+> **Goal:** Make technology decisions that fit your product, then validate risky ones.
+
+1. Start a new AI chat session with the orchestrator + your completed Phase 1 and Phase 2 docs
+2. Load `phase-3/pm-phase-3-technical-architecture.md`
+3. Work through these decisions with the AI:
+   - **Stack decisions:** Frontend, backend, database, auth, hosting (with rationale)
+   - **Infrastructure:** Monolith vs. modular vs. microservices
+   - **Data architecture:** Map every entity from Phase 2 to database storage
+   - **State machines:** Define states and transitions for stateful entities
+4. **Risk prototyping (2-4 hours):** For each complexity flag from Phase 1, build a minimal prototype with real APIs (not mocks) and document what you learned
+5. Save the completed architecture doc to your project repo
+
+### After Phase 3
+
+Continue with the orchestrator through Phases 4 (Cursor Rules), 4.5 (DevOps), and 5 (Building). The same pattern applies — load the phase doc, work through it with AI, save the output.
 
 ---
 
-## Key Insight from Clairu Analysis
+## Key Insight from Real-World Analysis
 
-In the Clairu codebase:
+In a typical AI-powered product codebase:
 - **95%** is DETERMINISTIC (auth, storage, UI, CRUD)
-- **~5%** is AI (one edge function: `coach-reply`)
+- **~5%** is AI (e.g., a single generative edge function)
 
 That 5% AI is the **core value proposition**, but it's cleanly separated. This validates the Base + Extension approach:
 - Don't pollute deterministic thinking with AI concerns
