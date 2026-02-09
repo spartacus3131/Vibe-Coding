@@ -91,7 +91,7 @@
 ### Edge Function
 **Plain English:** A small program that runs in the cloud, close to your users. Like having mini-kitchens in every city instead of shipping all food from one central kitchen.
 
-**Example:** Clairu's `coach-reply` edge function runs on Supabase's servers, not your phone.
+**Example:** A `coach-reply` edge function runs on Supabase's servers, not your phone.
 
 ### Endpoint
 **Plain English:** A specific URL where your API listens for requests. Like a specific counter at a government office.

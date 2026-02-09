@@ -306,7 +306,7 @@ Why: [Explanation]
 | **Owner** | Product team |
 
 **Purpose Statement:**
-Delivers AI-guided productivity coaching through natural conversation. Generates contextual prompts, extracts user intentions and energy levels, and applies Chris Bailey's frameworks to help users be more productive. This is Clairu's core value—the coaching experience that differentiates us.
+Delivers AI-guided productivity coaching through natural conversation. Generates contextual prompts, extracts user intentions and energy levels, and applies productivity frameworks to help users be more productive. This is the product's core value — the coaching experience that differentiates it.
 
 ---
 

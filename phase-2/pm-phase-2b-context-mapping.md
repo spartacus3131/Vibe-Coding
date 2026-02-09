@@ -217,7 +217,7 @@ Document how information flows to and from AI contexts:
 
 ---
 
-## EXAMPLE: Clairu Context Map
+## EXAMPLE: Productivity Coaching App Context Map
 
 ```markdown
 ## Subdomains
@@ -225,7 +225,7 @@ Document how information flows to and from AI contexts:
 ### Subdomain: AI Coaching
 **Events:** GreetingGenerated, ResponseGenerated, IntentExtracted, GuardrailTriggered
 **Classification:** Core
-**Rationale:** This IS the product. The coaching experience powered by AI is why users choose Clairu.
+**Rationale:** This IS the product. The coaching experience powered by AI is why users choose this app.
 
 ### Subdomain: User Context
 **Events:** EnergyAuditRecorded, IntentionSet, SessionOutcomeRecorded

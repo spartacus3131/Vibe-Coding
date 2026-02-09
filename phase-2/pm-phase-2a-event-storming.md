@@ -236,7 +236,7 @@ User Flow from PRD: [Which flow this maps to]
 
 ---
 
-## EXAMPLE: Morning Check-In Flow (Clairu)
+## EXAMPLE: Morning Check-In Flow (Productivity Coaching App)
 
 ```markdown
 ## Event Storm: Morning Check-In
